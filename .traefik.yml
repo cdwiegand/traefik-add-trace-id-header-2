@@ -4,6 +4,4 @@ import: github.com/cdwiegand/traefik-add-trace-id
 summary: 'Add a header for tracing (unless remote is trusted IP and one already is set)'
 testData:
 	headerName: 'X-Trace-Id'
-	headerPrefix: ''
-	verbose: false
-	trustedNetworks: '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7,fec0::/10'
+	trustedNetworks: '*'
