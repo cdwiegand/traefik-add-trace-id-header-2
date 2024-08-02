@@ -14,10 +14,9 @@ Thanks to [trinnylondon/traefik-add-trace-id](https://github.com/trinnylondon/tr
 ```
 experimental:
 	plugins:
-		# the name below must match the name you reference in the middleware section (next step)
-		traefik-add-trace-id:
+		traceinjector:
 			moduleName: github.com/cdwiegand/traefik-add-trace-id
-			version: v0.2.0
+			version: v0.2.1
 ```
 
 2. Define the middleware. Note that this plugin does not need any configuration, however, values must be passed in for it to be accepted within Traefik:
@@ -28,8 +27,7 @@ http:
 		# this name must match the middleware that you attach to routers later
 		mw-trace-id:
 			plugin:
-				# this name must match the plugin name listed under "experimental/plugins" in the previous step
-				traefik-add-trace-id:
+				traceinjector:
 					# valuePrefix is prepended to the generated GUID
 					valuePrefix: ""
 					# headerName is the HTTP header name to use
