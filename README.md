@@ -17,7 +17,7 @@ experimental:
 		# the name below must match the name you reference in the middleware section (next step)
 		traefik-add-trace-id:
 			moduleName: github.com/cdwiegand/traefik-add-trace-id
-			version: v0.1.6
+			version: v0.2.0
 ```
 
 2. Define the middleware. Note that this plugin does not need any configuration, however, values must be passed in for it to be accepted within Traefik:
