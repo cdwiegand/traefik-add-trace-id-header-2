@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	uuid "github.com/gofrs/uuid/v5"
+	ulid "github.com/oklog/ulid/v2"
 )
 
 const defaultHeaderName = "X-Trace-Id"
@@ -23,7 +24,7 @@ type Config struct {
 	TrustPrivateIPs bool   `json:"trustPrivateIPs"`
 	TrustLocalhost  bool   `json:"trustLocalhost"`
 	TrustNetworks   string `json:"trustNetworks"`
-	UuidGen         int    `json:"uuidGen"`
+	UuidGen         string `json:"uuidGen"`
 }
 
 // CreateConfig creates the DEFAULT plugin configuration - no access to config yet!
@@ -37,7 +38,7 @@ func CreateConfig() *Config {
 		TrustPrivateIPs: false,
 		TrustLocalhost:  false,
 		Verbose:         false,
-		UuidGen:         4,
+		UuidGen:         "4", // 4 = UUIDv4, 7 = UUIDv7, L = ULID
 	}
 }
 
@@ -51,7 +52,7 @@ type TraceIDHeader struct {
 	trustAllIPs     bool
 	trustPrivateIPs bool
 	trustLocalhost  bool
-	uuidGen         int
+	uuidGen         string
 	name            string
 	next            http.Handler
 }
@@ -61,11 +62,12 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	if config == nil {
 		return nil, fmt.Errorf("config can not be nil")
 	}
-	if config.UuidGen == 0 {
-		config.UuidGen = 4 // sane default
+	if config.UuidGen == "" {
+		config.UuidGen = "4" // sane default
 	}
-	if config.UuidGen != 4 && config.UuidGen != 7 {
-		return nil, fmt.Errorf("only uuid gen value of 4 or 7 is supported")
+	config.UuidGen = strings.ToUpper(config.UuidGen)
+	if config.UuidGen != "4" && config.UuidGen != "7" && config.UuidGen != "L" {
+		return nil, fmt.Errorf("only uuid gen value of 4 (UUIDv4), 7 (UUIDv7), or L (ULID) is supported")
 	}
 
 	var trustedIPRanges []*net.IPNet
@@ -108,17 +110,21 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 }
 
 func (t *TraceIDHeader) ModifyRequest(req *http.Request) {
-	var s uuid.UUID
+	var traceValue string
 	switch t.uuidGen {
-	case 4:
-		s, _ = uuid.NewV4()
-	case 7:
-		s, _ = uuid.NewV7()
+	case "4":
+		tmpUuid4, _ := uuid.NewV4()
+		traceValue = t.valuePrefix + tmpUuid4.String()
+	case "7":
+		tmpUuid7, _ := uuid.NewV7()
+		traceValue = t.valuePrefix + tmpUuid7.String()
+	case "L":
+		s2 := ulid.Make()
+		traceValue = t.valuePrefix + s2.String()
 	}
-	randomUUID := t.valuePrefix + s.String()
 
 	req.Header.Del(t.headerName)
-	req.Header.Add(t.headerName, randomUUID)
+	req.Header.Add(t.headerName, traceValue)
 
 	if t.verbose {
 		log.Println(req.Header[t.headerName][0])
