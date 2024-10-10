@@ -3,5 +3,5 @@ type: middleware
 import: github.com/cdwiegand/traefik-add-trace-id-header
 summary: 'Add a header for tracing (unless remote is trusted IP and one already is set)'
 testData:
-	headerName: 'X-Trace-Id'
-	trustedNetworks: '*'
+  headerName: 'X-Trace-Id'
+  trustedNetworks: '*'
