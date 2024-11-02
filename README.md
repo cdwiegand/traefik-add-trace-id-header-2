@@ -62,3 +62,10 @@ http:
 ```
 
 4. You are done!
+
+## Testing Methods:
+1. Testing by using local plugin functionality, assuming the code is checked out to `C:\devel\traefik-add-trace-id-header-2`:
+```
+docker run --rm -it -p 8888:80 -v C:\devel\traefik-add-trace-id-header-2\:/srv/plugins-local/src/github.com/cdwiegand/traefik-add-trace-id-header-2:ro -w /srv traefik:3.0 --entryPoints.web.address=:80 --experimental.localPlugins.traceIdHeader.modulename=github.com/cdwiegand/traefik-add-trace-id-header-2 --providers.file.filename=/srv/plugins-local/src/github.com/cdwiegand/traefik-add-trace-id-header-2/testing.traefik.yml --api=true --api.dashboard=true
+```
+and go to http://localhost:8888/dashboard/ and inspect the browser's Network tab to see the X-Trace-Id header injected in the response.
