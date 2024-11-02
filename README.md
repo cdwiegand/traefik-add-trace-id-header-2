@@ -15,7 +15,7 @@ Thanks to [trinnylondon/traefik-add-trace-id](https://github.com/trinnylondon/tr
 experimental:
 	plugins:
 		traceinjector:
-			moduleName: github.com/cdwiegand/traefik-add-trace-id
+			moduleName: github.com/cdwiegand/traefik-add-trace-id-2
 			version: v0.2.1
 ```
 
@@ -32,15 +32,7 @@ http:
 					valuePrefix: ""
 					# headerName is the HTTP header name to use
 					headerName: "X-Trace-Id"
-					# trustNetworks specifies networks in CIDR notation to trust, leaving an existing trace header if found
-					trustNetworks: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7,fec0::/10"
-					# trustAllIPs means we leave any existing trace header if found
-					trustAllIPs: false
-					# trustAllPrivateIPs allows private networks to leave an existing trace header if found
-					trustAllPrivateIPs: false	 # this also includes localhost
-					# trustLocalhost trusts only localhost (127.0.0.0/24 or ::1) to leave an existing trace header if found
-					trustLocalhost: false			 # this means only 127.0.0.0/24 and ::1
-					# uuidGen indicates the type of UUID to generate, 4 being default, 7 being a k-sortable type
+					# uuidGen indicates the type of UUID to generate, 4 being default, 7 being a k-sortable type, L being a ULID
 					uuidGen: 4
 ```
 Please note that traefik requires at least one configuration variable set, to keep the defaults you can set `trustAllIPs: false` to accomodate this. *This is not a requirement of this plugin, but a traefik requirement.*
