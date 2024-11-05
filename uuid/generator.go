@@ -37,6 +37,18 @@ import (
 // UUID epoch (October 15, 1582) and Unix epoch (January 1, 1970).
 const epochStart = 122192928000000000
 
+// Error is a custom error type for UUID-related errors
+type Error string
+
+const (
+	ErrNoHwAddressFound = Error("uuid: no HW address found")
+)
+
+// Error returns the string representation of the UUID error.
+func (e Error) Error() string {
+	return string(e)
+}
+
 // EpochFunc is the function type used to provide the current time.
 type EpochFunc func() time.Time
 

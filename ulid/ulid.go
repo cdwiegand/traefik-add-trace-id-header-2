@@ -16,7 +16,6 @@ package ulid
 import (
 	"bufio"
 	"bytes"
-	"database/sql/driver"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -95,7 +94,7 @@ type MonotonicReader interface {
 //
 // Safety for concurrent use is only dependent on the safety of the
 // entropy source.
-func New(ms uint64, entropy io.Reader) (id ULID, err error) {
+func New(ms uint64, entropy io.Reader) (id ULID, err error) { //2
 	if err = id.SetTime(ms); err != nil {
 		return id, err
 	}
@@ -114,7 +113,7 @@ func New(ms uint64, entropy io.Reader) (id ULID, err error) {
 
 // MustNew is a convenience function equivalent to New that panics on failure
 // instead of returning an error.
-func MustNew(ms uint64, entropy io.Reader) ULID {
+func MustNew(ms uint64, entropy io.Reader) ULID { //2
 	id, err := New(ms, entropy)
 	if err != nil {
 		panic(err)
@@ -129,7 +128,7 @@ var (
 
 // DefaultEntropy returns a thread-safe per process monotonically increasing
 // entropy source.
-func DefaultEntropy() io.Reader {
+func DefaultEntropy() io.Reader { //2
 	entropyOnce.Do(func() {
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 		entropy = &LockedMonotonicReader{
@@ -143,122 +142,9 @@ func DefaultEntropy() io.Reader {
 // monotonically increasing entropy for the same millisecond.
 // It is safe for concurrent use, leveraging a sync.Pool underneath for minimal
 // contention.
-func Make() (id ULID) {
+func Make() (id ULID) { //2
 	// NOTE: MustNew can't panic since DefaultEntropy never returns an error.
 	return MustNew(Now(), DefaultEntropy())
-}
-
-// Parse parses an encoded ULID, returning an error in case of failure.
-//
-// ErrDataSize is returned if the len(ulid) is different from an encoded
-// ULID's length. Invalid encodings produce undefined ULIDs. For a version that
-// returns an error instead, see ParseStrict.
-func Parse(ulid string) (id ULID, err error) {
-	return id, parse([]byte(ulid), false, &id)
-}
-
-// ParseStrict parses an encoded ULID, returning an error in case of failure.
-//
-// It is like Parse, but additionally validates that the parsed ULID consists
-// only of valid base32 characters. It is slightly slower than Parse.
-//
-// ErrDataSize is returned if the len(ulid) is different from an encoded
-// ULID's length. Invalid encodings return ErrInvalidCharacters.
-func ParseStrict(ulid string) (id ULID, err error) {
-	return id, parse([]byte(ulid), true, &id)
-}
-
-func parse(v []byte, strict bool, id *ULID) error {
-	// Check if a base32 encoded ULID is the right length.
-	if len(v) != EncodedSize {
-		return ErrDataSize
-	}
-
-	// Check if all the characters in a base32 encoded ULID are part of the
-	// expected base32 character set.
-	if strict &&
-		(dec[v[0]] == 0xFF ||
-			dec[v[1]] == 0xFF ||
-			dec[v[2]] == 0xFF ||
-			dec[v[3]] == 0xFF ||
-			dec[v[4]] == 0xFF ||
-			dec[v[5]] == 0xFF ||
-			dec[v[6]] == 0xFF ||
-			dec[v[7]] == 0xFF ||
-			dec[v[8]] == 0xFF ||
-			dec[v[9]] == 0xFF ||
-			dec[v[10]] == 0xFF ||
-			dec[v[11]] == 0xFF ||
-			dec[v[12]] == 0xFF ||
-			dec[v[13]] == 0xFF ||
-			dec[v[14]] == 0xFF ||
-			dec[v[15]] == 0xFF ||
-			dec[v[16]] == 0xFF ||
-			dec[v[17]] == 0xFF ||
-			dec[v[18]] == 0xFF ||
-			dec[v[19]] == 0xFF ||
-			dec[v[20]] == 0xFF ||
-			dec[v[21]] == 0xFF ||
-			dec[v[22]] == 0xFF ||
-			dec[v[23]] == 0xFF ||
-			dec[v[24]] == 0xFF ||
-			dec[v[25]] == 0xFF) {
-		return ErrInvalidCharacters
-	}
-
-	// Check if the first character in a base32 encoded ULID will overflow. This
-	// happens because the base32 representation encodes 130 bits, while the
-	// ULID is only 128 bits.
-	//
-	// See https://github.com/oklog/ulid/issues/9 for details.
-	if v[0] > '7' {
-		return ErrOverflow
-	}
-
-	// Use an optimized unrolled loop (from https://github.com/RobThree/NUlid)
-	// to decode a base32 ULID.
-
-	// 6 bytes timestamp (48 bits)
-	(*id)[0] = (dec[v[0]] << 5) | dec[v[1]]
-	(*id)[1] = (dec[v[2]] << 3) | (dec[v[3]] >> 2)
-	(*id)[2] = (dec[v[3]] << 6) | (dec[v[4]] << 1) | (dec[v[5]] >> 4)
-	(*id)[3] = (dec[v[5]] << 4) | (dec[v[6]] >> 1)
-	(*id)[4] = (dec[v[6]] << 7) | (dec[v[7]] << 2) | (dec[v[8]] >> 3)
-	(*id)[5] = (dec[v[8]] << 5) | dec[v[9]]
-
-	// 10 bytes of entropy (80 bits)
-	(*id)[6] = (dec[v[10]] << 3) | (dec[v[11]] >> 2)
-	(*id)[7] = (dec[v[11]] << 6) | (dec[v[12]] << 1) | (dec[v[13]] >> 4)
-	(*id)[8] = (dec[v[13]] << 4) | (dec[v[14]] >> 1)
-	(*id)[9] = (dec[v[14]] << 7) | (dec[v[15]] << 2) | (dec[v[16]] >> 3)
-	(*id)[10] = (dec[v[16]] << 5) | dec[v[17]]
-	(*id)[11] = (dec[v[18]] << 3) | dec[v[19]]>>2
-	(*id)[12] = (dec[v[19]] << 6) | (dec[v[20]] << 1) | (dec[v[21]] >> 4)
-	(*id)[13] = (dec[v[21]] << 4) | (dec[v[22]] >> 1)
-	(*id)[14] = (dec[v[22]] << 7) | (dec[v[23]] << 2) | (dec[v[24]] >> 3)
-	(*id)[15] = (dec[v[24]] << 5) | dec[v[25]]
-
-	return nil
-}
-
-// MustParse is a convenience function equivalent to Parse that panics on failure
-// instead of returning an error.
-func MustParse(ulid string) ULID {
-	id, err := Parse(ulid)
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
-// MustParseStrict is a convenience function equivalent to ParseStrict that
-// panics on failure instead of returning an error.
-func MustParseStrict(ulid string) ULID {
-	id, err := ParseStrict(ulid)
-	if err != nil {
-		panic(err)
-	}
-	return id
 }
 
 // Bytes returns bytes slice representation of ULID.
@@ -392,15 +278,6 @@ var dec = [...]byte{
 // EncodedSize is the length of a text encoded ULID.
 const EncodedSize = 26
 
-// UnmarshalText implements the encoding.TextUnmarshaler interface by
-// parsing the data as string encoded ULID.
-//
-// ErrDataSize is returned if the len(v) is different from an encoded
-// ULID's length. Invalid encodings produce undefined ULIDs.
-func (id *ULID) UnmarshalText(v []byte) error {
-	return parse(v, false, id)
-}
-
 // Time returns the Unix time in milliseconds encoded in the ULID.
 // Use the top level Time function to convert the returned value to
 // a time.Time.
@@ -420,8 +297,9 @@ func MaxTime() uint64 { return maxTime }
 
 // Now is a convenience function that returns the current
 // UTC time in Unix milliseconds. Equivalent to:
-//   Timestamp(time.Now().UTC())
-func Now() uint64 { return Timestamp(time.Now().UTC()) }
+//
+//	Timestamp(time.Now().UTC())
+func Now() uint64 { return Timestamp(time.Now().UTC()) } //2
 
 // Timestamp converts a time.Time to Unix milliseconds.
 //
@@ -481,57 +359,6 @@ func (id ULID) Compare(other ULID) int {
 	return bytes.Compare(id[:], other[:])
 }
 
-// Scan implements the sql.Scanner interface. It supports scanning
-// a string or byte slice.
-func (id *ULID) Scan(src interface{}) error {
-	switch x := src.(type) {
-	case nil:
-		return nil
-	case string:
-		return id.UnmarshalText([]byte(x))
-	case []byte:
-		return id.UnmarshalBinary(x)
-	}
-
-	return ErrScanValue
-}
-
-// Value implements the sql/driver.Valuer interface, returning the ULID as a
-// slice of bytes, by invoking MarshalBinary. If your use case requires a string
-// representation instead, you can create a wrapper type that calls String()
-// instead.
-//
-//    type stringValuer ulid.ULID
-//
-//    func (v stringValuer) Value() (driver.Value, error) {
-//        return ulid.ULID(v).String(), nil
-//    }
-//
-//    // Example usage.
-//    db.Exec("...", stringValuer(id))
-//
-// All valid ULIDs, including zero-value ULIDs, return a valid Value with a nil
-// error. If your use case requires zero-value ULIDs to return a non-nil error,
-// you can create a wrapper type that special-cases this behavior.
-//
-//    var zeroValueULID ulid.ULID
-//
-//    type invalidZeroValuer ulid.ULID
-//
-//    func (v invalidZeroValuer) Value() (driver.Value, error) {
-//        if ulid.ULID(v).Compare(zeroValueULID) == 0 {
-//            return nil, fmt.Errorf("zero value")
-//        }
-//        return ulid.ULID(v).Value()
-//    }
-//
-//    // Example usage.
-//    db.Exec("...", invalidZeroValuer(id))
-//
-func (id ULID) Value() (driver.Value, error) {
-	return id.MarshalBinary()
-}
-
 // Monotonic returns an entropy source that is guaranteed to yield
 // strictly increasing entropy bytes for the same ULID timestamp.
 // On conflicts, the previous ULID entropy is incremented with a
@@ -548,7 +375,7 @@ func (id ULID) Value() (driver.Value, error) {
 // what you're doing.
 //
 // The returned type isn't safe for concurrent use.
-func Monotonic(entropy io.Reader, inc uint64) *MonotonicEntropy {
+func Monotonic(entropy io.Reader, inc uint64) *MonotonicEntropy { //2
 	m := MonotonicEntropy{
 		Reader: bufio.NewReader(entropy),
 		inc:    inc,

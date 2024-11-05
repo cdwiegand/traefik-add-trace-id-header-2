@@ -37,13 +37,6 @@
 // [2] http://pubs.opengroup.org/onlinepubs/9696989899/chap5.htm#tagcjh_08_02_01_01
 package uuid
 
-import (
-	"encoding/binary"
-	"encoding/hex"
-	"fmt"
-	"time"
-)
-
 // Size of a UUID in bytes.
 const Size = 16
 
@@ -74,134 +67,18 @@ const (
 // Backward-compatible variant for RFC 4122
 const VariantRFC4122 = VariantRFC9562
 
-// UUID DCE domains.
-const (
-	DomainPerson = iota
-	DomainGroup
-	DomainOrg
-)
-
 // Timestamp is the count of 100-nanosecond intervals since 00:00:00.00,
 // 15 October 1582 within a V1 UUID. This type has no meaning for other
 // UUID versions since they don't have an embedded timestamp.
 type Timestamp uint64
 
-const _100nsPerSecond = 10000000
-
-// Time returns the UTC time.Time representation of a Timestamp
-func (t Timestamp) Time() (time.Time, error) {
-	secs := uint64(t) / _100nsPerSecond
-	nsecs := 100 * (uint64(t) % _100nsPerSecond)
-
-	return time.Unix(int64(secs)-(epochStart/_100nsPerSecond), int64(nsecs)), nil
-}
-
-// TimestampFromV1 returns the Timestamp embedded within a V1 UUID.
-// Returns an error if the UUID is any version other than 1.
-func TimestampFromV1(u UUID) (Timestamp, error) {
-	if u.Version() != 1 {
-		err := fmt.Errorf("%w %s is version %d, not version 1", ErrInvalidVersion, u, u.Version())
-		return 0, err
-	}
-
-	low := binary.BigEndian.Uint32(u[0:4])
-	mid := binary.BigEndian.Uint16(u[4:6])
-	hi := binary.BigEndian.Uint16(u[6:8]) & 0xfff
-
-	return Timestamp(uint64(low) + (uint64(mid) << 32) + (uint64(hi) << 48)), nil
-}
-
-// TimestampFromV6 returns the Timestamp embedded within a V6 UUID. This
-// function returns an error if the UUID is any version other than 6.
-func TimestampFromV6(u UUID) (Timestamp, error) {
-	if u.Version() != 6 {
-		return 0, fmt.Errorf("%w %s is version %d, not version 6", ErrInvalidVersion, u, u.Version())
-	}
-
-	hi := binary.BigEndian.Uint32(u[0:4])
-	mid := binary.BigEndian.Uint16(u[4:6])
-	low := binary.BigEndian.Uint16(u[6:8]) & 0xfff
-
-	return Timestamp(uint64(low) + (uint64(mid) << 12) + (uint64(hi) << 28)), nil
-}
-
-// TimestampFromV7 returns the Timestamp embedded within a V7 UUID. This
-// function returns an error if the UUID is any version other than 7.
-func TimestampFromV7(u UUID) (Timestamp, error) {
-	if u.Version() != 7 {
-		return 0, fmt.Errorf("%w %s is version %d, not version 7", ErrInvalidVersion, u, u.Version())
-	}
-
-	t := 0 |
-		(int64(u[0]) << 40) |
-		(int64(u[1]) << 32) |
-		(int64(u[2]) << 24) |
-		(int64(u[3]) << 16) |
-		(int64(u[4]) << 8) |
-		int64(u[5])
-
-	// convert to format expected by Timestamp
-	tsNanos := epochStart + time.UnixMilli(t).UTC().UnixNano()/100
-	return Timestamp(tsNanos), nil
-}
-
 // Nil is the nil UUID, as specified in RFC-9562, that has all 128 bits set to
 // zero.
 var Nil = UUID{}
 
-// Max is the maximum UUID, as specified in RFC-9562, that has all 128 bits
-// set to one.
-var Max = UUID{
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-	0xFF,
-}
-
-// Predefined namespace UUIDs.
-var (
-	NamespaceDNS  = Must(FromString("6ba7b810-9dad-11d1-80b4-00c04fd430c8"))
-	NamespaceURL  = Must(FromString("6ba7b811-9dad-11d1-80b4-00c04fd430c8"))
-	NamespaceOID  = Must(FromString("6ba7b812-9dad-11d1-80b4-00c04fd430c8"))
-	NamespaceX500 = Must(FromString("6ba7b814-9dad-11d1-80b4-00c04fd430c8"))
-)
-
-// IsNil returns if the UUID is equal to the nil UUID
-func (u UUID) IsNil() bool {
-	return u == Nil
-}
-
 // Version returns the algorithm version used to generate the UUID.
 func (u UUID) Version() byte {
 	return u[6] >> 4
-}
-
-// Variant returns the UUID layout variant.
-func (u UUID) Variant() byte {
-	switch {
-	case (u[8] >> 7) == 0x00:
-		return VariantNCS
-	case (u[8] >> 6) == 0x02:
-		return VariantRFC9562
-	case (u[8] >> 5) == 0x06:
-		return VariantMicrosoft
-	case (u[8] >> 5) == 0x07:
-		fallthrough
-	default:
-		return VariantFuture
-	}
 }
 
 // Bytes returns a byte slice representation of the UUID.
@@ -236,54 +113,6 @@ func (u UUID) String() string {
 	var buf [36]byte
 	encodeCanonical(buf[:], u)
 	return string(buf[:])
-}
-
-// Format implements fmt.Formatter for UUID values.
-//
-// The behavior is as follows:
-// The 'x' and 'X' verbs output only the hex digits of the UUID, using a-f for 'x' and A-F for 'X'.
-// The 'v', '+v', 's' and 'q' verbs return the canonical RFC-9562 string representation.
-// The 'S' verb returns the RFC-9562 format, but with capital hex digits.
-// The '#v' verb returns the "Go syntax" representation, which is a 16 byte array initializer.
-// All other verbs not handled directly by the fmt package (like '%p') are unsupported and will return
-// "%!verb(uuid.UUID=value)" as recommended by the fmt package.
-func (u UUID) Format(f fmt.State, c rune) {
-	if c == 'v' && f.Flag('#') {
-		fmt.Fprintf(f, "%#v", [Size]byte(u))
-		return
-	}
-	switch c {
-	case 'x', 'X':
-		b := make([]byte, 32)
-		hex.Encode(b, u[:])
-		if c == 'X' {
-			toUpperHex(b)
-		}
-		_, _ = f.Write(b)
-	case 'v', 's', 'S':
-		b, _ := u.MarshalText()
-		if c == 'S' {
-			toUpperHex(b)
-		}
-		_, _ = f.Write(b)
-	case 'q':
-		b := make([]byte, 38)
-		b[0] = '"'
-		encodeCanonical(b[1:], u)
-		b[37] = '"'
-		_, _ = f.Write(b)
-	default:
-		// invalid/unsupported format verb
-		fmt.Fprintf(f, "%%!%c(uuid.UUID=%s)", c, u.String())
-	}
-}
-
-func toUpperHex(b []byte) {
-	for i, c := range b {
-		if 'a' <= c && c <= 'f' {
-			b[i] = c - ('a' - 'A')
-		}
-	}
 }
 
 // SetVersion sets the version bits.
