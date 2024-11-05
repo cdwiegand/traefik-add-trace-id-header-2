@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	uuid "github.com/gofrs/uuid/v5"
-	ulid "github.com/oklog/ulid/v2"
+	"github.com/cdwiegand/traefik-add-trace-id-header-2/ulid"
+	"github.com/cdwiegand/traefik-add-trace-id-header-2/uuid"
 )
 
 const defaultHeaderName = "X-Trace-Id"
