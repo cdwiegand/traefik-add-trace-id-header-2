@@ -1,6 +1,6 @@
 displayName: Add Trace ID Header
 type: middleware
-import: github.com/cdwiegand/traefik-add-trace-id-header-2
+import: traefik_add_trace_id_header_2 github.com/cdwiegand/traefik-add-trace-id-header-2
 basePkg: traefik_add_trace_id_header_2
 summary: 'Add a header for tracing'
 testData:
