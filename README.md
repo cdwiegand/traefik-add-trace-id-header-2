@@ -36,6 +36,8 @@ http:
      headerName: "X-Trace-Id"
      # uuidGen indicates the type of UUID to generate, 4 being default, 7 being a k-sortable type, L being a ULID
      uuidGen: 4
+     # addToResponse indicates whether to add the header to the response
+     addToResponse: "true"
 ```
 
 Please note that traefik requires at least one configuration variable set, to keep the defaults you can set `trustAllIPs: false` to accomodate this. *This is not a requirement of this plugin, but a traefik requirement.*
