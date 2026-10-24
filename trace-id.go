@@ -1,6 +1,7 @@
 package traefik_add_trace_id_header_2
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
@@ -179,6 +180,7 @@ func (t *TraceIDHeader) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		traceValue, err = t.GenerateTraceID()
 		if err != nil {
 			log.Printf("%s: failed to generate trace ID, passing request through without %s: %v", t.name, t.headerName, err)
+			req.Header.Del(t.headerName)
 			t.next.ServeHTTP(rw, req)
 			return
 		}
@@ -187,6 +189,8 @@ func (t *TraceIDHeader) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	req.Header.Set(t.headerName, traceValue)
 	if t.addToResponse {
 		rw.Header().Set(t.headerName, traceValue)
+		rw = &traceResponseWriter{ResponseWriter: rw, headerName: t.headerName, traceValue: traceValue}
+		defer rw.Header() // Also handle responses that never write a status or body.
 	}
 
 	if t.verbose {
@@ -194,4 +198,61 @@ func (t *TraceIDHeader) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	t.next.ServeHTTP(rw, req)
+}
+
+// traceResponseWriter keeps the selected ID when downstream handlers modify
+// response headers, including before implicit writes and streaming flushes.
+type traceResponseWriter struct {
+	http.ResponseWriter
+	headerName  string
+	traceValue  string
+	wroteHeader bool
+}
+
+func (w *traceResponseWriter) Header() http.Header {
+	header := w.ResponseWriter.Header()
+	header.Set(w.headerName, w.traceValue)
+	return header
+}
+
+func (w *traceResponseWriter) WriteHeader(status int) {
+	if !w.wroteHeader {
+		w.Header()
+		// Informational responses do not commit the final response headers.
+		w.wroteHeader = status == http.StatusSwitchingProtocols || status >= 200
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *traceResponseWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *traceResponseWriter) FlushError() error {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+func (w *traceResponseWriter) Flush() {
+	_ = w.FlushError()
+}
+
+func (w *traceResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return http.NewResponseController(w.ResponseWriter).Hijack()
+}
+
+func (w *traceResponseWriter) Push(target string, opts *http.PushOptions) error {
+	if pusher, ok := w.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, opts)
+	}
+	return http.ErrNotSupported
+}
+
+func (w *traceResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }

@@ -2,10 +2,14 @@ package traefik_add_trace_id_header_2
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"strings"
 	"testing"
+
+	"github.com/cdwiegand/traefik-add-trace-id-header-2/uuid"
 )
 
 func TestGenerateTraceID(t *testing.T) {
@@ -330,5 +334,128 @@ func TestNewRejectsInvalidTrustedIPs(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected an error for trustedIPs entry %q", entry)
 		}
+	}
+}
+
+type traceTestTransport func(*http.Request) (*http.Response, error)
+
+func (f traceTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestResponseTraceIDOverridesBackend(t *testing.T) {
+	for _, headerName := range []string{defaultHeaderName, "Other-Trace-Id"} {
+		for _, addToResponse := range []bool{true, false} {
+			config := CreateConfig()
+			config.HeaderName = headerName
+			config.AddToResponse = addToResponse
+			var requestID string
+			proxy := &httputil.ReverseProxy{
+				Director: func(req *http.Request) {},
+				Transport: traceTestTransport(func(req *http.Request) (*http.Response, error) {
+					requestID = req.Header.Get(headerName)
+					header := make(http.Header)
+					header.Add(headerName, "backend-id")
+					header.Add(headerName, "second-backend-id")
+					return &http.Response{StatusCode: http.StatusAccepted, Header: header, Body: io.NopCloser(strings.NewReader("backend body"))}, nil
+				}),
+			}
+			handler, err := New(context.Background(), proxy, config, "trace-id-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com", nil))
+			values := rec.Result().Header.Values(headerName)
+			if addToResponse {
+				if len(values) != 1 || values[0] != requestID {
+					t.Fatalf("%s: response IDs %q, want only request ID %q", headerName, values, requestID)
+				}
+			} else if len(values) != 2 || values[0] != "backend-id" || values[1] != "second-backend-id" {
+				t.Fatalf("%s: backend headers changed with addToResponse disabled: %q", headerName, values)
+			}
+			if rec.Code != http.StatusAccepted || rec.Body.String() != "backend body" {
+				t.Fatalf("backend response changed: status %d, body %q", rec.Code, rec.Body.String())
+			}
+		}
+	}
+}
+
+func TestResponseTraceIDCommitPaths(t *testing.T) {
+	for _, mode := range []string{"implicit", "empty", "flush", "informational"} {
+		t.Run(mode, func(t *testing.T) {
+			requestIDs := make(chan string, 1)
+			next := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requestIDs <- req.Header.Get(defaultHeaderName)
+				if mode == "informational" {
+					w.WriteHeader(http.StatusEarlyHints)
+				}
+				w.Header().Set(defaultHeaderName, "backend-id")
+				switch mode {
+				case "implicit":
+					_, _ = w.Write([]byte("body"))
+				case "flush":
+					if err := http.NewResponseController(w).Flush(); err != nil {
+						t.Fatal(err)
+					}
+				case "informational":
+					w.WriteHeader(http.StatusNoContent)
+				}
+			})
+			handler, err := New(context.Background(), next, CreateConfig(), "trace-id-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Use a server so informational responses and implicit empty responses
+			// are committed using the real HTTP implementation.
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			resp, err := server.Client().Get(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			requestID := <-requestIDs
+			values := resp.Header.Values(defaultHeaderName)
+			if len(values) != 1 || values[0] != requestID {
+				t.Fatalf("response IDs %q, want only %q", values, requestID)
+			}
+		})
+	}
+}
+
+func TestGenerationFailureRemovesUntrustedTraceID(t *testing.T) {
+	original := uuid.DefaultGenerator
+	t.Cleanup(func() { uuid.DefaultGenerator = original })
+	for _, version := range []string{"4", "7"} {
+		t.Run(version, func(t *testing.T) {
+			uuid.DefaultGenerator = uuid.NewGenWithOptions(uuid.WithRandomReader(strings.NewReader("")))
+			config := CreateConfig()
+			config.UUIDGen = version
+			config.HeaderName = "Other-Trace-Id"
+			called := false
+			next := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				called = true
+				if values := req.Header.Values(config.HeaderName); len(values) != 0 {
+					t.Fatalf("untrusted trace IDs reached backend: %q", values)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+			handler, err := New(context.Background(), next, config, "trace-id-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+			req.Header.Add(config.HeaderName, "spoofed-id")
+			req.Header.Add(config.HeaderName, "second-spoofed-id")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if !called || rec.Code != http.StatusNoContent {
+				t.Fatal("request did not pass through after generation failure")
+			}
+			if values := rec.Result().Header.Values(config.HeaderName); len(values) != 0 {
+				t.Fatalf("unexpected response trace IDs: %q", values)
+			}
+		})
 	}
 }
